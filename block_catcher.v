@@ -96,7 +96,6 @@ module block_catcher(
 		.HEX4(HEX4),
 		.HEX5(HEX5),
 	);
-
 endmodule
 
 module game_module(
@@ -168,7 +167,7 @@ module game_module(
 	);	
 
 	hex_display H4 (
-		.IN(timer_convert_to_bcd[3:0]),
+		.IN(rng[3:0]),
 		.OUT(HEX4)
 	);	
 
@@ -177,8 +176,9 @@ module game_module(
 		.OUT(HEX5)
 	);	
 
-	reg [0:31] q;
-	random rng(.q(q));
+    wire [3:0] rng;
+
+    random r(.o(rng), .clk(count_to_60 == 0));
 
 	// start pos of paddle
 	integer paddle_x = 8'd72; // try 6 pixel wide
@@ -186,22 +186,22 @@ module game_module(
 	integer paddle_y = 8'd110; // at bottom
 
 	// integer location of col 1
-	integer col_1_x = 8'd0 + q[2:0];
+	integer col_1_x = 8'd0; 
 	integer col_1_y = 8'd0;
 	reg [3:0] count_col_1; // 2x2 by now
 
 	// integer location of col 2
-	integer col_2_x = 8'd40 + q[5:3];
+	integer col_2_x = 8'd40; 
 	integer col_2_y = 8'd0;
 	reg [3:0] count_col_2; // 2x2 by now
 
 	// integer location of col 3
-	integer col_3_x = 8'd80 + q[8:6];
+	integer col_3_x = 8'd80; 
 	integer col_3_y = 8'd0;
 	reg [3:0] count_col_3; // 2x2 by now
 
 	// integer location of col 4
-	integer col_4_x = 8'd120 + q[11:9];
+	integer col_4_x = 8'd120; 
 	integer col_4_y = 8'd0;
 	reg [3:0] count_col_4; // 2x2 by now
 
@@ -358,6 +358,7 @@ module game_module(
 			end
 			ERASE_COL_ONE: begin
 				if (col_1_y >= 8'd109) begin // check if paddle in same x pos
+	                col_1_x = 8'd0 + rng[3:0]; 
 					col_1_y = 8'd0; // reset to top
 					if ((col_1_x >= paddle_x) && (col_1_x + 1 <= paddle_x + 16))
 						score = score + 1;
@@ -392,6 +393,7 @@ module game_module(
 
 			ERASE_COL_2: begin
 				if (col_2_y >= 8'd109) begin // check if paddle in same x pos
+	                col_2_x = 8'd40 + rng[3:0]; 
 					col_2_y = 8'd0; // reset to top
 					if ((col_2_x >= paddle_x) && (col_2_x + 1 <= paddle_x + 16))
 						score = score + 1;
@@ -426,6 +428,7 @@ module game_module(
 
 			ERASE_COL_3: begin
 				if (col_3_y >= 8'd109) begin // check if paddle in same x pos
+	                col_3_x = 8'd80 + rng[3:0]; 
 					col_3_y = 8'd0; // reset to top
 					if ((col_3_x >= paddle_x) && (col_3_x + 1 <= paddle_x + 16))
 						score = score + 1;
@@ -460,6 +463,7 @@ module game_module(
 
 			ERASE_COL_4: begin
 				if (col_4_y >= 8'd109) begin // check if paddle in same x pos
+	                col_4_x = 8'd120 + rng[3:0]; 
 					col_4_y = 8'd0; // reset to top
 					if ((col_4_x >= paddle_x) && (col_4_x + 1 <= paddle_x + 16))
 						score = score + 1;
@@ -593,13 +597,44 @@ module bin2bcd(
 		end
 endmodule
 
-module random(q);
-	output [0:31] q;
-	reg [0:31] q;
-
-	initial
-		r_seed = 2;
-
-	always
-		#10 q = $random(r_seed);
+module tff_p(q,t,c);
+    output q;
+    input t,c;
+    reg q;
+    initial 
+     begin 
+      q=1'b1;
+     end
+    always @ (posedge c)
+    begin
+        if (t==1'b0) begin q=q; end
+        else begin q=~q;  end
+    end
+endmodule
+ 
+module tff1_p(q,t,c);
+    output q;
+    input t,c;
+    reg q;
+    initial 
+     begin 
+      q=1'b0;
+     end
+    always @ (posedge c)
+    begin
+        if (t==1'b0) begin q=q; end
+        else begin q=~q;  end
+    end
+endmodule
+ 
+module random(o,clk);
+    output [3:0]o;      input clk;
+    xor (t0,o[3],o[2]);
+    assign t1=o[0];
+    assign t2=o[1];
+    assign t3=o[2];
+    tff_p u1(o[0],t0,clk);
+    tff1_p u2(o[1],t1,clk);
+    tff1_p u3(o[2],t2,clk);
+    tff1_p u4(o[3],t3,clk);
 endmodule
