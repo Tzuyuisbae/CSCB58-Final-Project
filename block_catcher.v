@@ -99,6 +99,16 @@ module block_catcher(
 endmodule
 
 module game_module(
+	// TODO:
+	// Clean up code
+	//		- maybe use ram idk ?????
+	// RNG when falling / don't make balls fall at same time
+	// Powerups / Uhh the reverse of powerups
+	// 		- Diff colours for powerups
+	// Diff colour balls
+	// diff game modes
+	// 		- timed (current one we making)
+	//		- survival (have 3 lives)
 	input left, right, clk, begin_game, resetn, 
 
 	output reg writeEn,
@@ -167,7 +177,7 @@ module game_module(
 	);	
 
 	hex_display H4 (
-		.IN(rng[3:0]),
+		.IN(timer_convert_to_bcd[3:0]),
 		.OUT(HEX4)
 	);	
 
@@ -178,7 +188,7 @@ module game_module(
 
     wire [3:0] rng;
 
-    random r(.o(rng), .clk(count_to_60 == 0));
+    random r(.o(rng), .clk(fps_60));
 
 	// start pos of paddle
 	integer paddle_x = 8'd72; // try 6 pixel wide
@@ -189,21 +199,25 @@ module game_module(
 	integer col_1_x = 8'd0; 
 	integer col_1_y = 8'd0;
 	reg [3:0] count_col_1; // 2x2 by now
+	reg [2:0] col_1_colour;
 
 	// integer location of col 2
 	integer col_2_x = 8'd40; 
 	integer col_2_y = 8'd0;
 	reg [3:0] count_col_2; // 2x2 by now
+	reg [2:0] col_2_colour;
 
 	// integer location of col 3
 	integer col_3_x = 8'd80; 
 	integer col_3_y = 8'd0;
 	reg [3:0] count_col_3; // 2x2 by now
+	reg [2:0] col_3_colour;
 
 	// integer location of col 4
 	integer col_4_x = 8'd120; 
 	integer col_4_y = 8'd0;
 	reg [3:0] count_col_4; // 2x2 by now
+	reg [2:0] col_4_colour;
 
 	// 60 fps counter
 
@@ -244,7 +258,10 @@ module game_module(
 		case (current_state)
 			DRAW_BLACK: begin
 				if (draw_counter < 17'b10000000000000000) begin
-						colour = 3'b000;
+						if (x >= 17'd120)
+							colour = 3'b010;
+						else
+							colour = 3'b000;
 						writeEn = 1'b1;
 						x = draw_counter[7:0];
 						y = draw_counter[16:8];
@@ -272,12 +289,16 @@ module game_module(
 			GAME_STOP: begin
 				next_state = begin_game ? GAME_START : GAME_STOP;
 				col_1_y = 8'd0;
+				col_1_colour = 3'b111;
 				col_2_y = 8'd0;
+				col_2_colour = 3'b111;
 				col_3_y = 8'd0;
+				col_3_colour = 3'b111;
 				col_4_y = 8'd0;
+				col_4_colour = 3'b111;
 	 			paddle_x = 8'd72; // at middle
 				paddle_y = 8'd110; // at bottom
-				score <= 16'd998; // check for top score later
+				score <= 16'd000; // check for top score later
 				timer = 8'd60;
 			end
 			GAME_START: begin
@@ -345,7 +366,7 @@ module game_module(
 			end
 			DRAW_PADDLE: begin
 				if (count_xy <= 6'b011111) begin
-					colour = 3'b111;
+					colour = 3'b100;
 					writeEn = 1'd1;
 					x = paddle_x + count_xy[3:0];	// the paddle is 15 pixel wide
 					y = paddle_y + count_xy[4]; // the paddle is 2 pixel high
@@ -358,10 +379,18 @@ module game_module(
 			end
 			ERASE_COL_ONE: begin
 				if (col_1_y >= 8'd109) begin // check if paddle in same x pos
+					col_1_colour = rng[2:0];
+					if (col_1_colour == 3'b000) begin
+						col_1_colour = 3'b010;
+					end
 	                col_1_x = 8'd0 + rng[3:0]; 
 					col_1_y = 8'd0; // reset to top
-					if ((col_1_x >= paddle_x) && (col_1_x + 1 <= paddle_x + 16))
-						score = score + 1;
+					if ((col_1_x >= paddle_x) && (col_1_x + 1 <= paddle_x + 16)) begin
+						if (col_1_colour == 3'b100 && score >= 3'b100)
+							score = score - 3'b100;
+						else
+							score = score + col_1_colour[2:0];
+					end
 				end
 				if (count_col_1 <= 3'd4) begin
 					colour = 3'b000;
@@ -372,13 +401,13 @@ module game_module(
 				end
 				else begin
 					count_col_1 = 3'd0;
-					col_1_y = col_1_y + 4;
+					col_1_y = col_1_y + 1;
 					next_state = DRAW_COL_ONE;
 				end
 			end
 			DRAW_COL_ONE: begin
 				if (count_col_1 <= 3'd4) begin
-					colour = 3'b111;
+					colour = col_1_colour[2:0];
 					writeEn = 1'd1;
 					x = col_1_x + count_col_1[0];
 					y = col_1_y + count_col_1[1];
@@ -393,10 +422,18 @@ module game_module(
 
 			ERASE_COL_2: begin
 				if (col_2_y >= 8'd109) begin // check if paddle in same x pos
-	                col_2_x = 8'd40 + rng[3:0]; 
+					col_2_colour = {rng[0], rng[1], rng[2]};
+					if (col_2_colour == 3'b000) begin
+						col_2_colour = 3'b010;
+					end
+	                col_2_x = 8'd40 + {rng[0], rng[1], rng[2]}; 
 					col_2_y = 8'd0; // reset to top
-					if ((col_2_x >= paddle_x) && (col_2_x + 1 <= paddle_x + 16))
-						score = score + 1;
+					if ((col_2_x >= paddle_x) && (col_2_x + 1 <= paddle_x + 16)) begin
+						if (col_2_colour == 3'b100 && score >= 3'b100)
+							score = score - 3'b100;
+						else
+							score = score + col_2_colour[2:0];
+					end
 				end
 				if (count_col_2 <= 3'd4) begin
 					colour = 3'b000;
@@ -407,13 +444,13 @@ module game_module(
 				end
 				else begin
 					count_col_2 = 3'd0;
-					col_2_y = col_2_y + 3;
+					col_2_y = col_2_y + 1;
 					next_state = DRAW_COL_2;
 				end
 			end
 			DRAW_COL_2: begin
 				if (count_col_2 <= 3'd4) begin
-					colour = 3'b111;
+					colour = col_2_colour[2:0];
 					writeEn = 1'd1;
 					x = col_2_x + count_col_2[0];
 					y = col_2_y + count_col_2[1];
@@ -428,10 +465,18 @@ module game_module(
 
 			ERASE_COL_3: begin
 				if (col_3_y >= 8'd109) begin // check if paddle in same x pos
-	                col_3_x = 8'd80 + rng[3:0]; 
+					col_3_colour = {rng[0], rng[2], rng[1]};
+					if (col_3_colour == 3'b000) begin
+						col_3_colour = 3'b010;
+					end
+	                col_3_x = 8'd80 + {rng[0], rng[2], rng[1]}; 
 					col_3_y = 8'd0; // reset to top
-					if ((col_3_x >= paddle_x) && (col_3_x + 1 <= paddle_x + 16))
-						score = score + 1;
+					if ((col_3_x >= paddle_x) && (col_3_x + 1 <= paddle_x + 16)) begin
+						if (col_3_colour == 3'b100 && score >= 3'b100)
+							score = score - 3'b100;
+						else
+							score = score + col_3_colour[2:0];
+					end
 				end
 				if (count_col_3 <= 3'd4) begin
 					colour = 3'b000;
@@ -442,13 +487,13 @@ module game_module(
 				end
 				else begin
 					count_col_3 = 3'd0;
-					col_3_y = col_3_y + 2;
+					col_3_y = col_3_y + 1;
 					next_state = DRAW_COL_3;
 				end
 			end
 			DRAW_COL_3: begin
 				if (count_col_3 <= 3'd4) begin
-					colour = 3'b111;
+					colour = col_3_colour[2:0];
 					writeEn = 1'd1;
 					x = col_3_x + count_col_3[0];
 					y = col_3_y + count_col_3[1];
@@ -463,10 +508,18 @@ module game_module(
 
 			ERASE_COL_4: begin
 				if (col_4_y >= 8'd109) begin // check if paddle in same x pos
-	                col_4_x = 8'd120 + rng[3:0]; 
+					col_4_colour = {rng[1], rng[2], rng[0]};
+					if (col_4_colour == 3'b000) begin
+						col_4_colour = 3'b010;
+					end
+	                col_4_x = 8'd120 + {rng[1], rng[2], rng[0]}; 
 					col_4_y = 8'd0; // reset to top
-					if ((col_4_x >= paddle_x) && (col_4_x + 1 <= paddle_x + 16))
-						score = score + 1;
+					if ((col_4_x >= paddle_x) && (col_4_x + 1 <= paddle_x + 16)) begin
+						if (col_4_colour == 3'b100 && score >= 3'b100)
+							score = score - 3'b100;
+						else
+							score = score + col_4_colour[2:0];
+					end
 				end
 				if (count_col_4 <= 3'd4) begin
 					colour = 3'b000;
@@ -483,7 +536,7 @@ module game_module(
 			end
 			DRAW_COL_4: begin
 				if (count_col_4 <= 3'd4) begin
-					colour = 3'b111;
+					colour = col_4_colour[2:0];
 					writeEn = 1'd1;
 					x = col_4_x + count_col_4[0];
 					y = col_4_y + count_col_4[1];
