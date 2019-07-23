@@ -3,9 +3,9 @@ module block_catcher(
 		CLOCK_50,						
 
 		// Your inputs and outputs here
-        	KEY,
-        	SW,
-	  	LEDR,
+    KEY,
+    SW,
+	  LEDR,
 
 		// The ports below are for the VGA output.  Do not change.
 		VGA_CLK,   						//	VGA Clock
@@ -23,7 +23,7 @@ module block_catcher(
 		HEX3,
 		HEX4,
 		HEX5
-);
+	);
 
 	input 		CLOCK_50;
 	input [17:0] 	SW;
@@ -219,6 +219,10 @@ module game_module(
 	reg [3:0] count_col_4; // 2x2 by now
 	reg [2:0] col_4_colour;
 
+	integer time_since_ball = 0;
+	integer range = 1;
+	reg [3:0] ball_active;
+
 	// 60 fps counter
 
 	wire fps_60;
@@ -258,10 +262,7 @@ module game_module(
 		case (current_state)
 			DRAW_BLACK: begin
 				if (draw_counter < 17'b10000000000000000) begin
-						if (x >= 17'd120)
-							colour = 3'b010;
-						else
-							colour = 3'b000;
+						colour = 3'b000;
 						writeEn = 1'b1;
 						x = draw_counter[7:0];
 						y = draw_counter[16:8];
@@ -300,6 +301,8 @@ module game_module(
 				paddle_y = 8'd110; // at bottom
 				score <= 16'd000; // check for top score later
 				timer = 8'd60;
+				time_since_ball = 0;
+				ball_active = 3'd0;
 			end
 			GAME_START: begin
 				if (left && fps_60) begin
@@ -314,10 +317,10 @@ module game_module(
 				else
 					writeEn = 1'd0;
 				if (count_to_60 == 60) begin
+					if (timer <= 0)
+						next_state = DRAW_BLACK;
 					count_to_60 = 0;
 					timer = timer - 1;
-					if (timer == 0)
-						next_state = DRAW_BLACK;
 				end
 				else if (fps_60) 
 					count_to_60 = count_to_60 + 1;
@@ -365,12 +368,25 @@ module game_module(
 				end
 			end
 			DRAW_PADDLE: begin
-				if (count_xy <= 6'b011111) begin
+				if (count_xy < 6'b111111) begin
 					colour = 3'b100;
 					writeEn = 1'd1;
-					x = paddle_x + count_xy[3:0];	// the paddle is 15 pixel wide
-					y = paddle_y + count_xy[4]; // the paddle is 2 pixel high
+					
+					if (range == 0) begin
+						x = paddle_x + count_xy[3:0];	// the paddle is 15 pixel wide
+						y = paddle_y + count_xy[4]; // the paddle is 2 pixel high
+					end
+					else begin
+						x = paddle_x + count_xy[4:0];	// the paddle is 15 pixel wide
+						y = paddle_y + count_xy[5]; // the paddle is 2 pixel high
+					end
+					
 					count_xy = count_xy + 1'b1;
+					if (count_xy == 6'b001010) begin
+						count_xy = 6'b100000;
+					end
+					else if (count_xy == 6'b101010)
+						count_xy = 6'b111111;
 				end
 				else begin
 					count_xy = 9'b00000;
@@ -378,19 +394,54 @@ module game_module(
 				end
 			end
 			ERASE_COL_ONE: begin
+
+				if (ball_active[0] == 1'b0 && time_since_ball >= 1) begin
+						ball_active[0] = 1'b1;
+						time_since_ball = 0;
+				end
+
+
+
 				if (col_1_y >= 8'd109) begin // check if paddle in same x pos
-					col_1_colour = rng[2:0];
+					ball_active[0] = 1'b0;
+					col_1_colour = 3'b010; //rng[2:0];
 					if (col_1_colour == 3'b000) begin
 						col_1_colour = 3'b010;
 					end
 	                col_1_x = 8'd0 + rng[3:0]; 
 					col_1_y = 8'd0; // reset to top
 					if ((col_1_x >= paddle_x) && (col_1_x + 1 <= paddle_x + 16)) begin
-						if (col_1_colour == 3'b100 && score >= 3'b100)
+						// score nerf
+						if (col_1_colour == 3'b101 && score >= 3'b100)
 							score = score - 3'b100;
 						else
 							score = score + col_1_colour[2:0];
+						// time nerf
+						if (col_1_colour == 3'b100) begin
+							if (timer > 3'b101)
+								// lose 5 seconds
+								timer = timer - 3'b101;
+							else 
+								timer = 3'b000;
+						end
+						else
+							score = score + col_1_colour[2:0];
+						// time buff
+						if (col_1_colour == 3'b001) begin
+							// gain 5 seconds
+							timer = timer + 3'b101;		
+						end		
+						else
+							score = score + col_1_colour[2:0];
+						// score buff
+						if (col_1_colour == 3'b010 && score >= 3'b100)
+							score = score + 3'b100;
 					end
+
+					// score buff
+
+					// time buff
+
 				end
 				if (count_col_1 <= 3'd4) begin
 					colour = 3'b000;
@@ -401,12 +452,13 @@ module game_module(
 				end
 				else begin
 					count_col_1 = 3'd0;
-					col_1_y = col_1_y + 1;
+					if (ball_active[0] == 1)
+						col_1_y = col_1_y + 1;
 					next_state = DRAW_COL_ONE;
 				end
 			end
 			DRAW_COL_ONE: begin
-				if (count_col_1 <= 3'd4) begin
+				if (count_col_1 <= 3'd4 && ball_active[0] == 1'b1) begin
 					colour = col_1_colour[2:0];
 					writeEn = 1'd1;
 					x = col_1_x + count_col_1[0];
