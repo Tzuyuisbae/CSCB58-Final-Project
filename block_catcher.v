@@ -138,10 +138,11 @@ module game_module(
 	wire [15:0] score_convert_to_bcd;
 
 	// paddle position
-	integer paddle_x; // start at middle
-	integer paddle_y; // 10 pixels from bottom
-	integer paddle_size; // 16 pixel wide paddle
+	integer paddle_x;
+	integer paddle_y;
+	integer paddle_size; 
 	integer direction; // 0 = left, 1 = right
+	reg [2:0] paddle_colour; 
 
 	// clock for 1/60 sec and 1 sec
 	wire CLOCK_1_60_S;
@@ -150,26 +151,15 @@ module game_module(
 	// wire for rng number
 	wire [15:0] rng;
 
-	// init ram for each ball
-	reg [4:0] address;
-	reg clock_ram;
-	reg [31:0] input_ram;
-	reg write_ram;
-	wire [31:0] output_ram;
-
-	// address = which ball eg. 0000 = ball 0...
-	// [7:0] x value of ball
-	// [15:8] y value of ball
-	// [18:16] colour of ball
-	// [21:19] size of ball
-	// [24:22] speed of ball
-	ram32x32 ram(
-		.address(address),
-		.clock(clock_ram),
-		.data(input_ram),
-		.wren(write_ram),
-		.q(output_ram)
-	);
+	// 2d reg for ball info
+	reg [7:0] ball_x [9:0];
+	reg [7:0] ball_y [9:0];
+	reg [2:0] ball_colour [9:0];
+	reg [2:0] ball_size [9:0];
+	reg [2:0] ball_speed [9:0];
+	reg [9:0] ball_active;
+	integer curr_ball;
+	integer ball_amount;
 
 	// init random number generator
 	random r0 (
@@ -250,7 +240,13 @@ module game_module(
 		  	GAME_START		= 5'd4, // when game is in play
 
 			ERASE_PADDLE 	= 5'd5, // erase and move paddle pos
-			DRAW_PADDLE		= 5'd6; // draw paddle at new position
+			DRAW_PADDLE		= 5'd6, // draw paddle at new position
+
+			SPAWN_BALLS		= 5'd7, // decide whether to spawn a ball
+			ERASE_BALLS		= 5'd8, // erase and move balls
+			DRAW_BALLS		= 5'd9, // draw balls at new position
+			// check if balls are in contact w/ bottom or paddle
+			COLLISION_CHECK = 5'd10; 
 
 	// STATE TABLE
 	always @(posedge clk)
@@ -261,7 +257,11 @@ module game_module(
 				writeEn = 1'b0; 
 				paddle_x = 72; // middle of screen
 				paddle_y = 110; // 10 px from bottom
-				paddle_size = 4;// 12 px size paddle
+				paddle_size = 4; // 12 px size paddle
+				paddle_colour = 3'b111; // white paddle
+				curr_ball = 0;
+				score = 1'b0;
+				ball_amount = 2;
 
 				next_state = DRAW_BG;
 			end
@@ -285,10 +285,7 @@ module game_module(
 			INIT_PADDLE: begin
 				if (draw_counter < (6'b100000 + paddle_size)) begin
 					writeEn = 1'b1;
-					if (draw_counter[2:0] == 3'b000)
-						colour = 3'b111;
-					else
-						colour = draw_counter[2:0];
+					colour = paddle_colour;
 
 					x = paddle_x + draw_counter[4:0];
 					y = paddle_y + draw_counter[5]; 
@@ -310,15 +307,18 @@ module game_module(
 			GAME_STOP: next_state = begin_game ? GAME_START : GAME_STOP;
 
 			GAME_START: begin
-				if (left && CLOCK_1_60_S) begin
+				if (left && CLOCK_1_60_S && paddle_x > 0) begin
 					direction = 0;
 					next_state = ERASE_PADDLE;
 				end
 
-				else if (right && CLOCK_1_60_S) begin
+				else if (right && CLOCK_1_60_S && paddle_x + paddle_size < 100) begin
 					direction = 1;
 					next_state = ERASE_PADDLE;
 				end
+
+				else if (CLOCK_1_60_S)
+					next_state = SPAWN_BALLS;
 			end
 
 			ERASE_PADDLE: begin
@@ -355,10 +355,7 @@ module game_module(
 			DRAW_PADDLE: begin
 				if (draw_counter < (6'b100000 + paddle_size)) begin
 					writeEn = 1'b1;
-					if (draw_counter[2:0] == 3'b000)
-						colour = 3'b111;
-					else
-						colour = draw_counter[2:0];
+					colour = paddle_colour;
 
 					x = paddle_x + draw_counter[4:0];
 					y = paddle_y + draw_counter[5]; 
@@ -372,6 +369,98 @@ module game_module(
 				else begin
 					writeEn = 1'b0;
 					draw_counter = 9'b00000;
+					next_state = SPAWN_BALLS;
+				end
+			end
+
+			SPAWN_BALLS: begin
+				if (curr_ball < ball_amount) begin
+					if (ball_active[curr_ball] == 1'b0) begin // && rng[3:0] == curr_ball) begin
+						ball_active[curr_ball] = 1'b1;
+
+						if (rng[2:0] == 3'b000)
+							ball_colour[curr_ball] = 3'b111;
+						else
+							ball_colour[curr_ball] = rng[2:0];
+
+						ball_x[curr_ball] = (10 * curr_ball) + rng[3:0];
+					end
+
+					curr_ball = curr_ball + 1;
+				end
+
+				else begin
+					curr_ball = 0;
+					next_state = COLLISION_CHECK;
+				end
+			end
+
+			COLLISION_CHECK: begin
+				if (curr_ball < ball_amount) begin
+					if ((ball_y[curr_ball] + 1) == 110) begin // change to ball size
+						ball_active[curr_ball] = 1'b0;
+						score = score + 1;
+						ball_y[curr_ball] = 1'b0;
+					end
+
+					curr_ball = curr_ball + 1;
+				end
+
+				else begin
+					curr_ball = 0;
+					next_state = ERASE_BALLS;
+				end
+			end
+
+			ERASE_BALLS: begin
+				if (curr_ball < ball_amount) begin
+					if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+						writeEn = 1'b1;
+						colour = 3'b000;
+
+						x = ball_x[curr_ball] + draw_counter[0];
+						y = ball_y[curr_ball] + draw_counter[1]; 
+
+						draw_counter = draw_counter + 1'b1;
+					end
+
+					else begin
+						writeEn = 1'b0;
+						draw_counter = 9'b00000;
+						ball_y[curr_ball] = ball_y[curr_ball] + 1;
+
+						curr_ball = curr_ball + 1;
+					end
+				end
+
+				else begin
+					curr_ball = 0;
+					next_state = DRAW_BALLS;
+				end
+			end
+
+			DRAW_BALLS: begin
+				if (curr_ball < ball_amount) begin
+					if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+						writeEn = 1'b1;
+						colour = ball_colour[curr_ball];
+
+						x = ball_x[curr_ball] + draw_counter[0];
+						y = ball_y[curr_ball] + draw_counter[1]; 
+
+						draw_counter = draw_counter + 1'b1;
+					end
+
+					else begin
+						writeEn = 1'b0;
+						draw_counter = 9'b00000;
+
+						curr_ball = curr_ball + 1;
+					end
+				end
+
+				else begin
+					curr_ball = 0;
 					next_state = GAME_START;
 				end
 			end
