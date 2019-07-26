@@ -261,7 +261,7 @@ module game_module(
 				writeEn = 1'b0; 
 				paddle_x = 72; // middle of screen
 				paddle_y = 110; // 10 px from bottom
-				paddle_size = 12;// 12 px size paddle
+				paddle_size = 4;// 12 px size paddle
 
 				next_state = DRAW_BG;
 			end
@@ -312,15 +312,66 @@ module game_module(
 			GAME_START: begin
 				if (left && CLOCK_1_60_S) begin
 					direction = 0;
-					next_state = GAME_START;
+					next_state = ERASE_PADDLE;
 				end
 
 				else if (right && CLOCK_1_60_S) begin
 					direction = 1;
-					next_state = GAME_START;
+					next_state = ERASE_PADDLE;
+				end
+			end
+
+			ERASE_PADDLE: begin
+				if (draw_counter < (6'b100001 + paddle_size)) begin
+					writeEn = 1'b1;
+					colour = 3'b000;
+
+					x = paddle_x + draw_counter[4:0];
+					y = paddle_y + draw_counter[5]; 
+					
+					if (draw_counter == (paddle_size - 1))
+						draw_counter = 6'b100000;
+					else
+						draw_counter = draw_counter + 1'b1;
 				end
 
 				else begin
+					// idk why i have to do this but i do
+					writeEn = 1'b1;
+					colour = 3'b000;
+					x = paddle_x;
+					y = paddle_y;
+					draw_counter = 9'b00000;
+
+					if (direction == 0)
+						paddle_x = paddle_x - 1;
+					else 
+						paddle_x = paddle_x + 1;
+
+					next_state = DRAW_PADDLE;
+				end
+			end
+
+			DRAW_PADDLE: begin
+				if (draw_counter < (6'b100000 + paddle_size)) begin
+					writeEn = 1'b1;
+					if (draw_counter[2:0] == 3'b000)
+						colour = 3'b111;
+					else
+						colour = draw_counter[2:0];
+
+					x = paddle_x + draw_counter[4:0];
+					y = paddle_y + draw_counter[5]; 
+					
+					if (draw_counter == (paddle_size - 1))
+						draw_counter = 6'b100000;
+					else
+						draw_counter = draw_counter + 1'b1;
+				end
+
+				else begin
+					writeEn = 1'b0;
+					draw_counter = 9'b00000;
 					next_state = GAME_START;
 				end
 			end
