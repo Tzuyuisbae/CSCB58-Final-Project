@@ -152,12 +152,12 @@ module game_module(
 	wire [15:0] rng;
 
 	// 2d reg for ball info
-	reg [7:0] ball_x [9:0];
-	reg [7:0] ball_y [9:0];
-	reg [2:0] ball_colour [9:0];
-	reg [2:0] ball_size [9:0];
-	reg [2:0] ball_speed [9:0];
-	reg [9:0] ball_active;
+	reg [7:0] ball_x [10:0];
+	reg [7:0] ball_y [10:0];
+	reg [2:0] ball_colour [10:0];
+	reg [2:0] ball_size [10:0];
+	reg [2:0] ball_speed [10:0];
+	reg [10:0] ball_active;
 	integer curr_ball;
 	integer ball_amount;
 
@@ -257,11 +257,11 @@ module game_module(
 				writeEn = 1'b0; 
 				paddle_x = 72; // middle of screen
 				paddle_y = 110; // 10 px from bottom
-				paddle_size = 4; // 12 px size paddle
+				paddle_size = 12; // 12 px size paddle
 				paddle_colour = 3'b111; // white paddle
 				curr_ball = 0;
 				score = 1'b0;
-				ball_amount = 2;
+				ball_amount = 3;
 
 				next_state = DRAW_BG;
 			end
@@ -374,7 +374,7 @@ module game_module(
 			end
 
 			SPAWN_BALLS: begin
-				if (curr_ball < ball_amount) begin
+				if (curr_ball < ball_amount + 1) begin
 					if (ball_active[curr_ball] == 1'b0) begin // && rng[3:0] == curr_ball) begin
 						ball_active[curr_ball] = 1'b1;
 
@@ -383,7 +383,8 @@ module game_module(
 						else
 							ball_colour[curr_ball] = rng[2:0];
 
-						ball_x[curr_ball] = (10 * curr_ball) + rng[3:0];
+						// ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
+						ball_x[curr_ball] = paddle_x - 2;
 					end
 
 					curr_ball = curr_ball + 1;
@@ -396,8 +397,13 @@ module game_module(
 			end
 
 			ERASE_BALLS: begin
-				if (curr_ball < ball_amount) begin
-					if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+				if (curr_ball < ball_amount + 1) begin
+					// for some reason i need a dummy ball
+					// the first has issues rendering
+					if (curr_ball == 0)
+						curr_ball = 1;
+
+					else if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
 						writeEn = 1'b1;
 						colour = 3'b000;
 
@@ -423,10 +429,11 @@ module game_module(
 			end
 
 			COLLISION_CHECK: begin
-				if (curr_ball < ball_amount) begin
-					if ((ball_y[curr_ball]) == 110) begin // change to ball size
+				if (curr_ball < ball_amount + 1) begin
+					if ((ball_y[curr_ball] + 1) == 110) begin // change to ball size
 						ball_active[curr_ball] = 1'b0;
-						score = score + 1;
+						if (ball_x[curr_ball] + 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size)
+							score = score + 1;
 						ball_y[curr_ball] = 1'b0;
 					end
 
@@ -440,8 +447,11 @@ module game_module(
 			end
 
 			DRAW_BALLS: begin
-				if (curr_ball < ball_amount) begin
-					if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+				if (curr_ball < ball_amount + 1) begin
+					if (curr_ball == 0)
+						curr_ball = 1;
+
+					else if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
 						writeEn = 1'b1;
 						colour = ball_colour[curr_ball];
 
