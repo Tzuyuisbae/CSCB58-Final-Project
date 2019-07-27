@@ -1,0 +1,3 @@
+[submodule "VGA-Text-Generator"]
+	path = VGA-Text-Generator
+	url = https://github.com/Derek-X-Wang/VGA-Text-Generator.git

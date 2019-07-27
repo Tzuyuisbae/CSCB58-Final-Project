@@ -384,7 +384,7 @@ module game_module(
 							ball_colour[curr_ball] = rng[2:0];
 
 						// ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
-						ball_x[curr_ball] = paddle_x - 2;
+						ball_x[curr_ball] = paddle_x + paddle_size;
 					end
 
 					curr_ball = curr_ball + 1;
