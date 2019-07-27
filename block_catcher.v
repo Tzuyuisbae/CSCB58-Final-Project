@@ -391,23 +391,6 @@ module game_module(
 
 				else begin
 					curr_ball = 0;
-					next_state = COLLISION_CHECK;
-				end
-			end
-
-			COLLISION_CHECK: begin
-				if (curr_ball < ball_amount) begin
-					if ((ball_y[curr_ball] + 1) == 110) begin // change to ball size
-						ball_active[curr_ball] = 1'b0;
-						score = score + 1;
-						ball_y[curr_ball] = 1'b0;
-					end
-
-					curr_ball = curr_ball + 1;
-				end
-
-				else begin
-					curr_ball = 0;
 					next_state = ERASE_BALLS;
 				end
 			end
@@ -431,6 +414,23 @@ module game_module(
 
 						curr_ball = curr_ball + 1;
 					end
+				end
+
+				else begin
+					curr_ball = 0;
+					next_state = COLLISION_CHECK;
+				end
+			end
+
+			COLLISION_CHECK: begin
+				if (curr_ball < ball_amount) begin
+					if ((ball_y[curr_ball]) == 110) begin // change to ball size
+						ball_active[curr_ball] = 1'b0;
+						score = score + 1;
+						ball_y[curr_ball] = 1'b0;
+					end
+
+					curr_ball = curr_ball + 1;
 				end
 
 				else begin
