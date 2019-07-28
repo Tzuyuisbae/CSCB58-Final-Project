@@ -147,6 +147,7 @@ module game_module(
 	// clock for 1/60 sec and 1 sec
 	wire CLOCK_1_60_S;
 	wire CLOCK_1;
+	integer count_to_60;
 
 	// wire for rng number
 	wire [15:0] rng;
@@ -160,6 +161,9 @@ module game_module(
 	reg [10:0] ball_active;
 	integer curr_ball;
 	integer ball_amount;
+	integer time_since_last_ball;
+	integer var_ball;
+	reg [3:0] rng_goal;
 
 	// init random number generator
 	random r0 (
@@ -263,6 +267,12 @@ module game_module(
 				curr_ball = 0;
 				score = 1'b0;
 				ball_amount = 9;
+				// need to reload the balls
+				count_to_60 = 0;
+				timer = 8'd10;
+				time_since_last_ball = 0;
+				var_ball = 15;
+				rng_goal = 3'd0;
 
 				next_state = DRAW_BG;
 			end
@@ -313,18 +323,33 @@ module game_module(
 			GAME_STOP: next_state = begin_game ? GAME_START : GAME_STOP;
 
 			GAME_START: begin
-				if (left && CLOCK_1_60_S && paddle_x > 0) begin
-					direction = 0;
-					next_state = ERASE_PADDLE;
+				// idk why using the 1 sec clock does not work
+				if (timer == 8'd0) begin
+					timer = 8'd10;
+					next_state = DRAW_BG;
 				end
 
-				else if (right && CLOCK_1_60_S && paddle_x + paddle_size + 1 < 100) begin
-					direction = 1;
-					next_state = ERASE_PADDLE;
-				end
+				else if (CLOCK_1_60_S) begin
+					if (left && paddle_x > 0) begin
+						direction = 0;
+						next_state = ERASE_PADDLE;
+					end
 
-				else if (CLOCK_1_60_S)
-					next_state = SPAWN_BALLS;
+					else if (right && paddle_x + paddle_size + 1 < 100) begin
+						direction = 1;
+						next_state = ERASE_PADDLE;
+					end
+
+					else
+						next_state = SPAWN_BALLS;
+
+					count_to_60 = count_to_60 + 1;
+					time_since_last_ball = time_since_last_ball + 1;
+					if (count_to_60 == 60) begin
+						timer = timer - 1;
+						count_to_60 = 0;
+					end
+				end
 			end
 
 			ERASE_PADDLE: begin
@@ -381,8 +406,15 @@ module game_module(
 
 			SPAWN_BALLS: begin
 				if (curr_ball < ball_amount + 1) begin
-					if (ball_active[curr_ball] == 1'b0) begin // && rng[3:0] == curr_ball) begin
+					if (ball_active[curr_ball] == 1'b0 && rng[3:0] == rng_goal && time_since_last_ball >= 20) begin
 						ball_active[curr_ball] = 1'b1;
+						time_since_last_ball = 0;
+						rng_goal = rng_goal + 1'b1;
+
+						if (var_ball % 2 == 0)
+							var_ball = 25;
+						else
+							var_ball = 20;
 
 						if (rng[2:0] == 3'b000)
 							ball_colour[curr_ball] = 3'b111;
@@ -421,7 +453,9 @@ module game_module(
 					else begin
 						writeEn = 1'b0;
 						draw_counter = 9'b00000;
-						ball_y[curr_ball] = ball_y[curr_ball] + 1;
+
+						if (ball_active[curr_ball] == 1'b1)
+							ball_y[curr_ball] = ball_y[curr_ball] + 1;
 
 						curr_ball = curr_ball + 1;
 					end
