@@ -260,7 +260,7 @@ module game_module(
 			GAME_INIT: begin
 				// reset all var to default
 				writeEn = 1'b0; 
-				paddle_x = 72; // middle of screen
+				paddle_x = 44; // middle of screen
 				paddle_y = 110; // 10 px from bottom
 				paddle_size = 12; // 12 px size paddle
 				paddle_colour = 3'b111; // white paddle
@@ -410,6 +410,9 @@ module game_module(
 						ball_active[curr_ball] = 1'b1;
 						time_since_last_ball = 0;
 						rng_goal = rng_goal + 1'b1;
+						ball_size[curr_ball] = rng[1:0] + 1'b1;
+						if (ball_size[curr_ball] == 4'd3)
+							ball_size[curr_ball] = 4'd4;
 
 						if (var_ball % 2 == 0)
 							var_ball = 25;
@@ -440,12 +443,21 @@ module game_module(
 					if (curr_ball == 0)
 						curr_ball = 1;
 
-					else if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+					else if (draw_counter <= (ball_size[curr_ball] * ball_size[curr_ball]) && ball_active[curr_ball] == 1'b1) begin
 						writeEn = 1'b1;
 						colour = 3'b000;
 
-						x = ball_x[curr_ball] + draw_counter[0];
-						y = ball_y[curr_ball] + draw_counter[1]; 
+						x = ball_x[curr_ball];
+						y = ball_y[curr_ball]; 
+
+						if (ball_size[curr_ball] == 4'd4) begin
+							x = x + draw_counter[1:0];
+							y = y + draw_counter[3:2]; 
+						end
+						else if (ball_size[curr_ball] == 4'd2) begin
+							x = x + draw_counter[0];
+							y = y + draw_counter[1]; 
+						end
 
 						draw_counter = draw_counter + 1'b1;
 					end
@@ -469,11 +481,11 @@ module game_module(
 
 			COLLISION_CHECK: begin
 				if (curr_ball < ball_amount + 1) begin
-					if ((ball_y[curr_ball] + 1) == 110) begin // change to ball size
+					if ((ball_y[curr_ball] + ball_size[curr_ball] - 1) == 110) begin // change to ball size
 						ball_active[curr_ball] = 1'b0;
 						// need to change 1 w/ ball size - 1
-						if (ball_x[curr_ball] + 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1)
-							score = score + 1;
+						if (ball_x[curr_ball] + ball_size[curr_ball] - 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1)
+							score = score + (5 - ball_size[curr_ball]);
 						ball_y[curr_ball] = 1'b0;
 					end
 
@@ -491,12 +503,22 @@ module game_module(
 					if (curr_ball == 0)
 						curr_ball = 1;
 
-					else if (draw_counter <= 3'd4 && ball_active[curr_ball] == 1'b1) begin
+					else if (draw_counter <= (ball_size[curr_ball] * ball_size[curr_ball]) && ball_active[curr_ball] == 1'b1) begin
 						writeEn = 1'b1;
 						colour = ball_colour[curr_ball];
 
-						x = ball_x[curr_ball] + draw_counter[0];
-						y = ball_y[curr_ball] + draw_counter[1]; 
+						x = ball_x[curr_ball];
+						y = ball_y[curr_ball]; 
+
+						if (ball_size[curr_ball] == 4'd4) begin
+							x = x + draw_counter[1:0];
+							y = y + draw_counter[3:2]; 
+						end
+
+						else if (ball_size[curr_ball] == 4'd2) begin
+							x = x + draw_counter[0];
+							y = y + draw_counter[1]; 
+						end
 
 						draw_counter = draw_counter + 1'b1;
 					end
