@@ -245,6 +245,7 @@ module game_module(
 			SPAWN_BALLS		= 5'd7, // decide whether to spawn a ball
 			ERASE_BALLS		= 5'd8, // erase and move balls
 			DRAW_BALLS		= 5'd9, // draw balls at new position
+
 			// check if balls are in contact w/ bottom or paddle
 			COLLISION_CHECK = 5'd10; 
 
@@ -261,7 +262,7 @@ module game_module(
 				paddle_colour = 3'b111; // white paddle
 				curr_ball = 0;
 				score = 1'b0;
-				ball_amount = 3;
+				ball_amount = 9;
 
 				next_state = DRAW_BG;
 			end
@@ -270,9 +271,14 @@ module game_module(
 				// colour all pixels black
 				if (draw_counter < 17'b10000000000000000) begin
 					writeEn = 1'b1;
-					colour = 3'b000;
 					x = draw_counter[7:0];
 					y = draw_counter[16:8];
+
+					if (x >= 100)
+						colour = 3'b001;
+					else
+						colour = 3'b000;
+
 					draw_counter = draw_counter + 1'b1;
 				end
 				else begin
@@ -312,7 +318,7 @@ module game_module(
 					next_state = ERASE_PADDLE;
 				end
 
-				else if (right && CLOCK_1_60_S && paddle_x + paddle_size < 100) begin
+				else if (right && CLOCK_1_60_S && paddle_x + paddle_size + 1 < 100) begin
 					direction = 1;
 					next_state = ERASE_PADDLE;
 				end
@@ -383,8 +389,7 @@ module game_module(
 						else
 							ball_colour[curr_ball] = rng[2:0];
 
-						// ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
-						ball_x[curr_ball] = paddle_x + paddle_size;
+						ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
 					end
 
 					curr_ball = curr_ball + 1;
@@ -432,7 +437,8 @@ module game_module(
 				if (curr_ball < ball_amount + 1) begin
 					if ((ball_y[curr_ball] + 1) == 110) begin // change to ball size
 						ball_active[curr_ball] = 1'b0;
-						if (ball_x[curr_ball] + 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size)
+						// need to change 1 w/ ball size - 1
+						if (ball_x[curr_ball] + 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1)
 							score = score + 1;
 						ball_y[curr_ball] = 1'b0;
 					end
