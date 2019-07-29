@@ -22,7 +22,9 @@ module block_catcher(
 		HEX2,
 		HEX3,
 		HEX4,
-		HEX5
+		HEX5,
+		HEX6,
+		HEX7
 );
 
 	input 		    CLOCK_50;
@@ -48,6 +50,8 @@ module block_catcher(
 	output [6:0] HEX3;
 	output [6:0] HEX4;
 	output [6:0] HEX5;
+	output [6:0] HEX6;
+	output [6:0] HEX7;
 
 	wire resetn;
 	assign resetn = KEY[0];
@@ -88,6 +92,8 @@ module block_catcher(
 		.x_out(x),
 		.y_out(y),
 		.colour_out(colour),
+
+		// for testing
 		.LEDR(LEDR),
 		.HEX0(HEX0),
 		.HEX1(HEX1),
@@ -95,6 +101,11 @@ module block_catcher(
 		.HEX3(HEX3),
 		.HEX4(HEX4),
 		.HEX5(HEX5),
+		.HEX6(HEX6),
+		.HEX7(HEX7),
+
+		// for testing
+		.SW(SW[17:3])
 	);
 endmodule
 
@@ -113,7 +124,13 @@ module game_module(
 	output [6:0] HEX2,
 	output [6:0] HEX3,
 	output [6:0] HEX4,
-	output [6:0] HEX5
+	output [6:0] HEX5,
+	output [6:0] HEX6,
+	output [6:0] HEX7,
+
+
+	// for testing
+	input [17:3] SW
 );
 
 	reg [7:0] current_state, next_state;
@@ -135,6 +152,7 @@ module game_module(
 
 	// converting time/score in hex to decimal
 	wire [7:0] timer_convert_to_bcd;
+	wire [7:0] power_timer_convert_to_bcd;
 	wire [15:0] score_convert_to_bcd;
 
 	// paddle position
@@ -164,6 +182,9 @@ module game_module(
 	integer var_ball; // variation in ball spawn
 	integer curr_ball_size;
 	integer curr_ball_speed;
+	integer base_score; // base score of a ball collected
+	reg [7:0] power_up_timer; // controls time of paddle size change
+	integer paddle_power; // holds whether if paddle has increase or decrease or neither
 	reg [3:0] rng_goal; // to introduce more rng to spawning
 
 	// init random number generator
@@ -190,8 +211,14 @@ module game_module(
 		.bcd(timer_convert_to_bcd[7:0])
 	);
 
+	bin2bcd power_timer_display (
+		.bin(power_up_timer[7:0]),
+		.bcd(power_timer_convert_to_bcd[7:0])
+	);
+
 	// HEX3 - HEX0 = current score
 	// HEX5, HEX4 = timer
+	// HEX7, HEX6 = power up timer
 	hex_display H0 (
 		.IN(score_convert_to_bcd[3:0]),
 		.OUT(HEX0)
@@ -222,6 +249,16 @@ module game_module(
 		.OUT(HEX5)
 	);	
 
+	hex_display H6 (
+		.IN(power_timer_convert_to_bcd[3:0]),
+		.OUT(HEX6)
+	);	
+
+	hex_display H7 (
+		.IN(power_timer_convert_to_bcd[7:4]),
+		.OUT(HEX7)
+	);	
+
 	// current_state registers
 	always@(posedge clk)
     	begin: state_FFs
@@ -241,14 +278,15 @@ module game_module(
 		  	GAME_START		= 5'd5, // when game is in play
 
 			ERASE_PADDLE 	= 5'd6, // erase and move paddle pos
-			DRAW_PADDLE		= 5'd7, // draw paddle at new position
+			ERASE_PADDLE_2 	= 5'd7,
+			DRAW_PADDLE		= 5'd8, // draw paddle at new position
 
-			SPAWN_BALLS		= 5'd8, // decide whether to spawn a ball
-			ERASE_BALLS		= 5'd9, // erase and move balls
-			DRAW_BALLS		= 5'd10, // draw balls at new position
+			SPAWN_BALLS		= 5'd9, // decide whether to spawn a ball
+			ERASE_BALLS		= 5'd10, // erase and move balls
+			DRAW_BALLS		= 5'd11, // draw balls at new position
 
 			// check if balls are in contact w/ bottom or paddle
-			COLLISION_CHECK = 5'd11; 
+			COLLISION_CHECK = 5'd12; 
 
 	// STATE TABLE
 	always @(posedge clk)
@@ -264,13 +302,19 @@ module game_module(
 				curr_ball = 0;
 				// need to implement scores
 				score = 1'b0;
+
+				// FOR TESTING
+				// ball_amount = 1; // 9 balls on screen
+
 				ball_amount = 9; // 9 balls on screen
+
 				count_to_60 = 0; // reset count_to_60 to 0
 				timer = 8'd60; // reset timer to 60
 				time_since_last_ball = 0; // reset ball timer
 				var_ball = 20; // ball variation speed
 				curr_ball_size = 4; // start at biggest size
 				curr_ball_speed = 1; // start at slowest speed
+				power_up_timer = 8'd0; // reset power up timer
 
 				next_state = RESET_BALLS;
 			end
@@ -373,6 +417,13 @@ module game_module(
 						timer = timer - 1;
 						count_to_60 = 0;
 
+						if (power_up_timer > 0)
+							power_up_timer = power_up_timer - 1;
+						else begin
+							paddle_power = -1;
+							paddle_size = 12;
+						end
+
 						// increase diff every 15 seconds for timed game
 						if (timer == 8'd45)
 							curr_ball_size = 2;
@@ -384,27 +435,33 @@ module game_module(
 				end
 			end
 
+			// Erase the entire bottom two rows yolo
 			ERASE_PADDLE: begin
-				if (draw_counter < (6'b100001 + paddle_size)) begin
-					writeEn = 1'b1;
+				if (draw_counter < 9'd100) begin
 					colour = 3'b000;
-
-					x = paddle_x + draw_counter[4:0];
-					y = paddle_y + draw_counter[5]; 
-					
-					if (draw_counter == (paddle_size - 1))
-						draw_counter = 6'b100000;
-					else
-						draw_counter = draw_counter + 1'b1;
+					writeEn = 1'd1;
+					x = draw_counter;
+					y = paddle_y;
+					draw_counter = draw_counter + 1'b1;
 				end
 
 				else begin
-					// idk why i have to do this but i do
-					// erase this specific pixel
-					writeEn = 1'b1;
+					draw_counter = 9'b00000;
+					next_state = ERASE_PADDLE_2;
+				end
+			end
+
+			ERASE_PADDLE_2: begin
+				if (draw_counter < 9'd100) begin
 					colour = 3'b000;
-					x = paddle_x;
-					y = paddle_y;
+					writeEn = 1'd1;
+					x = draw_counter;
+					y = paddle_y + 1;
+					draw_counter = draw_counter + 1'b1;
+				end
+
+				else begin
+					writeEn = 1'b0;
 					draw_counter = 9'b00000;
 
 					// move left or right depending on prev state
@@ -468,8 +525,14 @@ module game_module(
 						else
 							ball_colour[curr_ball] = rng[2:0];
 
+						// FOR TESTING
+						// ball_colour[curr_ball] = SW[17:15];
+
 						// set ball location across the play area w/ randomness
 						ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
+
+						// FOR TESTING
+						// ball_x[curr_ball] = paddle_x;
 					end
 
 					curr_ball = curr_ball + 1;
@@ -537,8 +600,55 @@ module game_module(
 
 						// need to add powerups and diff stuff
 						// check if ball is within the paddle dimensions
-						if (ball_x[curr_ball] + ball_size[curr_ball] - 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1)
-							score = score + (5 - ball_size[curr_ball]);
+						if (ball_x[curr_ball] + ball_size[curr_ball] - 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1) begin
+							// ball size = 4 -> 1, 2 -> 3, 1 -> 4 multiplication
+							base_score = (5 - ball_size[curr_ball]);
+							
+							// blue == 001 just double score
+							// green == 010 increase paddle size to 24 for 5 seconds
+							// red == 100 lower timer by 5 / lose life and lose point
+							// yellow == 110 decrease paddle size for 5 seconds to 6
+							// magenta - cyan - white just add the colour value to score
+
+							// power down gets priority
+							// red no effect if green in effect
+							if (ball_colour[curr_ball] == 3'b100 && paddle_power != 1) begin
+								// need one for survival
+								// need these checks so it don't break
+								if (timer > 3'b101) begin
+									timer = timer - 3'b101;
+									// decrease score
+									base_score = base_score * -1;
+								end
+								else 
+									timer = 3'b000; 
+							end
+							// yellow no effect if green in effect
+							else if (ball_colour[curr_ball] == 3'b110 && paddle_power != 1) begin
+								paddle_size = 6;
+								power_up_timer = 5;
+								paddle_power = 0;
+							end
+							// blue no effect if yellow in effect
+							else if (ball_colour[curr_ball] == 3'b001 && paddle_power != 0)
+								base_score = base_score * 2;
+							// green nothing happens if paddle is decreased
+							else if (ball_colour[curr_ball] == 3'b010 && paddle_power == -1) begin
+								paddle_size = 24;
+
+								// ensure ball does not overlap with menu
+								if (paddle_x + paddle_size + 1 >= 100)
+									paddle_x = 99 - paddle_size;
+								power_up_timer = 5;
+								paddle_power = 1;
+							end
+
+							// check if score is negative
+							if (score + base_score <= 0)
+								score = 3'd0;
+							else
+								score = score + base_score;
+						end
 
 					end
 
