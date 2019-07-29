@@ -148,6 +148,7 @@ module game_module(
 
 	// reg for holding the score, time, lives
 	reg [15:0] score;
+	reg [15:0] high_score;
 	reg [7:0] timer;
 
 	// converting time/score in hex to decimal
@@ -186,6 +187,8 @@ module game_module(
 	reg [7:0] power_up_timer; // controls time of paddle size change
 	integer paddle_power; // holds whether if paddle has increase or decrease or neither
 	reg [3:0] rng_goal; // to introduce more rng to spawning
+	// draw bg does different things if prev state is in game or not
+	reg from_game;  // init value of 0
 
 	// init random number generator
 	random r0 (
@@ -262,10 +265,8 @@ module game_module(
 	// current_state registers
 	always@(posedge clk)
     	begin: state_FFs
-        	if(!resetn)
-        	    current_state <= GAME_INIT;
-        	else
-        	    current_state <= next_state;
+			// removed resetn will only have effect during game
+			current_state <= next_state;
 	end
 
 	// GAME STATES
@@ -300,8 +301,15 @@ module game_module(
 				paddle_size = 12; // 12 px size paddle
 				paddle_colour = 3'b111; // white paddle
 				curr_ball = 0;
-				// need to implement scores
-				score = 1'b0;
+				// update high scores here
+				// will not update if you quit
+				if (from_game == 1) begin
+					if (score > high_score)
+						high_score = score;
+				end
+
+				// show high score
+				score = high_score;
 
 				// FOR TESTING
 				// ball_amount = 1; // 9 balls on screen
@@ -316,6 +324,7 @@ module game_module(
 				curr_ball_speed = 1; // start at slowest speed
 				power_up_timer = 8'd0; // reset power up timer
 
+				from_game = 0;
 				next_state = RESET_BALLS;
 			end
 
@@ -335,7 +344,13 @@ module game_module(
 			DRAW_BG: begin
 				// colour all pixels black
 				if (draw_counter < 17'b10000000000000000) begin
-					writeEn = 1'b1;
+					// do not draw in 100x100 if from game
+					// bc of flickering
+					if (from_game == 1 && x < 100)
+						writeEn = 1'b0;
+					else
+						writeEn = 1'b1;
+
 					x = draw_counter[7:0];
 					y = draw_counter[16:8];
 
@@ -351,7 +366,8 @@ module game_module(
 				else begin
 					writeEn = 1'b0;
 					draw_counter = 17'b00000000;
-					next_state = INIT_PADDLE;
+					// erase paddle or init paddle depending from where called
+					next_state = from_game ? ERASE_PADDLE : INIT_PADDLE;
 				end
 			end
 
@@ -381,33 +397,41 @@ module game_module(
 			GAME_STOP: next_state = begin_game ? GAME_START : GAME_STOP;
 
 			GAME_START: begin
+				// reset the game when reset n is pressed
+				if (!resetn) begin
+					from_game = 0;
+					next_state = GAME_INIT;
+				end
+
+				// set score
+				else if (from_game == 0) begin
+					from_game = 1;
+					score = 9'd0;
+				end
+
 				// idk why using the 1 sec clock does not work
 				// need to use count_to_60 lol
-				if (timer == 8'd0) begin
+				else if (timer == 8'd0) begin
 					timer = 8'd60;
 					next_state = GAME_INIT;
 				end
 
 				// every 1/60th of second
 				else if (CLOCK_1_60_S) begin
+					// update screen
+					next_state = DRAW_BG;
+
 					// move left
-					if (left && paddle_x > 0) begin
+					if (left && paddle_x > 0)
 						direction = 0;
-						next_state = ERASE_PADDLE;
-					end
 
 					// move right
-					else if (right && paddle_x + paddle_size + 1 < 100) begin
+					else if (right && paddle_x + paddle_size + 1 < 100)
 						direction = 1;
-						next_state = ERASE_PADDLE;
-					end
 
 					// do nothing
-					else begin
-						// just update the paddle
+					else
 						direction = -1;
-						next_state = ERASE_PADDLE;
-					end
 
 					count_to_60 = count_to_60 + 1;
 					time_since_last_ball = time_since_last_ball + 1;
