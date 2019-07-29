@@ -146,7 +146,6 @@ module game_module(
 
 	// clock for 1/60 sec and 1 sec
 	wire CLOCK_1_60_S;
-	wire CLOCK_1;
 	integer count_to_60;
 
 	// wire for rng number
@@ -162,8 +161,10 @@ module game_module(
 	integer curr_ball;
 	integer ball_amount;
 	integer time_since_last_ball;
-	integer var_ball;
-	reg [3:0] rng_goal;
+	integer var_ball; // variation in ball spawn
+	integer curr_ball_size;
+	integer curr_ball_speed;
+	reg [3:0] rng_goal; // to introduce more rng to spawning
 
 	// init random number generator
 	random r0 (
@@ -176,11 +177,6 @@ module game_module(
 	frame_divider_1_60 f0 (
 		.CLOCK_50(clk),
 		.CLOCK_1_60_S(CLOCK_1_60_S)
-	);
-
-	frame_divider_1 f1 (
-		.CLOCK_1_60_S(CLOCK_1_60_S),
-		.CLOCK_1(CLOCK_1)
 	);
 
 	// converting score/time to bcd
@@ -238,20 +234,21 @@ module game_module(
 	// GAME STATES
 	localparam 	
 			GAME_INIT		= 5'd0, // init the game vars
-			DRAW_BG 		= 5'd1, // draw background
-			INIT_PADDLE		= 5'd2, // draw paddle at start position
-			GAME_STOP		= 5'd3, // wait for player to start
-		  	GAME_START		= 5'd4, // when game is in play
+			RESET_BALLS		= 5'd1, // reset ball stats
+			DRAW_BG 		= 5'd2, // draw background
+			INIT_PADDLE		= 5'd3, // draw paddle at start position
+			GAME_STOP		= 5'd4, // wait for player to start
+		  	GAME_START		= 5'd5, // when game is in play
 
-			ERASE_PADDLE 	= 5'd5, // erase and move paddle pos
-			DRAW_PADDLE		= 5'd6, // draw paddle at new position
+			ERASE_PADDLE 	= 5'd6, // erase and move paddle pos
+			DRAW_PADDLE		= 5'd7, // draw paddle at new position
 
-			SPAWN_BALLS		= 5'd7, // decide whether to spawn a ball
-			ERASE_BALLS		= 5'd8, // erase and move balls
-			DRAW_BALLS		= 5'd9, // draw balls at new position
+			SPAWN_BALLS		= 5'd8, // decide whether to spawn a ball
+			ERASE_BALLS		= 5'd9, // erase and move balls
+			DRAW_BALLS		= 5'd10, // draw balls at new position
 
 			// check if balls are in contact w/ bottom or paddle
-			COLLISION_CHECK = 5'd10; 
+			COLLISION_CHECK = 5'd11; 
 
 	// STATE TABLE
 	always @(posedge clk)
@@ -265,16 +262,30 @@ module game_module(
 				paddle_size = 12; // 12 px size paddle
 				paddle_colour = 3'b111; // white paddle
 				curr_ball = 0;
+				// need to implement scores
 				score = 1'b0;
-				ball_amount = 9;
-				// need to reload the balls
-				count_to_60 = 0;
-				timer = 8'd10;
-				time_since_last_ball = 0;
-				var_ball = 15;
-				rng_goal = 3'd0;
+				ball_amount = 9; // 9 balls on screen
+				count_to_60 = 0; // reset count_to_60 to 0
+				timer = 8'd60; // reset timer to 60
+				time_since_last_ball = 0; // reset ball timer
+				var_ball = 20; // ball variation speed
+				curr_ball_size = 4; // start at biggest size
+				curr_ball_speed = 1; // start at slowest speed
 
-				next_state = DRAW_BG;
+				next_state = RESET_BALLS;
+			end
+
+			// this state is to make balls inactive
+			RESET_BALLS: begin
+				if (curr_ball < ball_amount + 1) begin
+					ball_active[curr_ball] = 1'b0;
+					curr_ball = curr_ball + 1;
+				end
+
+				else begin
+					curr_ball = 0;
+					next_state = DRAW_BG;
+				end
 			end
 
 			DRAW_BG: begin
@@ -284,6 +295,8 @@ module game_module(
 					x = draw_counter[7:0];
 					y = draw_counter[16:8];
 
+					// draw bg for side 'menu' blue
+					// need scores
 					if (x >= 100)
 						colour = 3'b001;
 					else
@@ -298,6 +311,7 @@ module game_module(
 				end
 			end
 
+			// draw initial paddle location
 			INIT_PADDLE: begin
 				if (draw_counter < (6'b100000 + paddle_size)) begin
 					writeEn = 1'b1;
@@ -324,30 +338,48 @@ module game_module(
 
 			GAME_START: begin
 				// idk why using the 1 sec clock does not work
+				// need to use count_to_60 lol
 				if (timer == 8'd0) begin
-					timer = 8'd10;
-					next_state = DRAW_BG;
+					timer = 8'd60;
+					next_state = GAME_INIT;
 				end
 
+				// every 1/60th of second
 				else if (CLOCK_1_60_S) begin
+					// move left
 					if (left && paddle_x > 0) begin
 						direction = 0;
 						next_state = ERASE_PADDLE;
 					end
 
+					// move right
 					else if (right && paddle_x + paddle_size + 1 < 100) begin
 						direction = 1;
 						next_state = ERASE_PADDLE;
 					end
 
-					else
-						next_state = SPAWN_BALLS;
+					// do nothing
+					else begin
+						// just update the paddle
+						direction = -1;
+						next_state = ERASE_PADDLE;
+					end
 
 					count_to_60 = count_to_60 + 1;
 					time_since_last_ball = time_since_last_ball + 1;
+
+					// this is every one second
 					if (count_to_60 == 60) begin
 						timer = timer - 1;
 						count_to_60 = 0;
+
+						// increase diff every 15 seconds for timed game
+						if (timer == 8'd45)
+							curr_ball_size = 2;
+						else if (timer == 8'd30)
+							curr_ball_speed = 2;
+						else if (timer == 8'd15)
+							curr_ball_size = 1;
 					end
 				end
 			end
@@ -368,21 +400,24 @@ module game_module(
 
 				else begin
 					// idk why i have to do this but i do
+					// erase this specific pixel
 					writeEn = 1'b1;
 					colour = 3'b000;
 					x = paddle_x;
 					y = paddle_y;
 					draw_counter = 9'b00000;
 
+					// move left or right depending on prev state
 					if (direction == 0)
 						paddle_x = paddle_x - 1;
-					else 
+					else if (direction == 1)
 						paddle_x = paddle_x + 1;
 
 					next_state = DRAW_PADDLE;
 				end
 			end
 
+			// just draw the thing 
 			DRAW_PADDLE: begin
 				if (draw_counter < (6'b100000 + paddle_size)) begin
 					writeEn = 1'b1;
@@ -406,24 +441,34 @@ module game_module(
 
 			SPAWN_BALLS: begin
 				if (curr_ball < ball_amount + 1) begin
-					if (ball_active[curr_ball] == 1'b0 && rng[3:0] == rng_goal && time_since_last_ball >= 20) begin
+					// try to introduce rng in the thing
+					if (ball_active[curr_ball] == 1'b0 && rng[3:0] == rng_goal && time_since_last_ball >= var_ball) begin
+						// set ball active and reset time since last ball
 						ball_active[curr_ball] = 1'b1;
 						time_since_last_ball = 0;
-						rng_goal = rng_goal + 1'b1;
-						ball_size[curr_ball] = rng[1:0] + 1'b1;
-						if (ball_size[curr_ball] == 4'd3)
-							ball_size[curr_ball] = 4'd4;
+						// set ball to top
+						ball_y[curr_ball] = 1'b0;
 
-						if (var_ball % 2 == 0)
-							var_ball = 25;
+						// rng_goal just keeps incrementing by one to introduce more 'rng'
+						rng_goal = rng_goal + 1'b1;
+
+						// set the ball size only when spawning
+						// we don't want ball to change size while it is active
+						ball_size[curr_ball] = curr_ball_size;
+
+						// just introducing more "rng" lol
+						if (var_ball < 30)
+							var_ball = var_ball + 1;
 						else
 							var_ball = 20;
 
+						// set ball colour w/ rng, make sure it isn't black tho
 						if (rng[2:0] == 3'b000)
 							ball_colour[curr_ball] = 3'b111;
 						else
 							ball_colour[curr_ball] = rng[2:0];
 
+						// set ball location across the play area w/ randomness
 						ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
 					end
 
@@ -443,6 +488,7 @@ module game_module(
 					if (curr_ball == 0)
 						curr_ball = 1;
 
+					// balls are squares 1x1 or 2x2 or 4x4
 					else if (draw_counter <= (ball_size[curr_ball] * ball_size[curr_ball]) && ball_active[curr_ball] == 1'b1) begin
 						writeEn = 1'b1;
 						colour = 3'b000;
@@ -466,8 +512,11 @@ module game_module(
 						writeEn = 1'b0;
 						draw_counter = 9'b00000;
 
+						// only move ball if its active
+						// looks weird when balls move in diff speeds
+						// so all balls will start moving the same speed
 						if (ball_active[curr_ball] == 1'b1)
-							ball_y[curr_ball] = ball_y[curr_ball] + 1;
+							ball_y[curr_ball] = ball_y[curr_ball] + curr_ball_speed;
 
 						curr_ball = curr_ball + 1;
 					end
@@ -481,12 +530,16 @@ module game_module(
 
 			COLLISION_CHECK: begin
 				if (curr_ball < ball_amount + 1) begin
-					if ((ball_y[curr_ball] + ball_size[curr_ball] - 1) == 110) begin // change to ball size
+
+					// check if ball is at paddle depth (110 px)
+					if ((ball_y[curr_ball] + ball_size[curr_ball] - 1) >= 110 && ball_active[curr_ball]) begin
 						ball_active[curr_ball] = 1'b0;
-						// need to change 1 w/ ball size - 1
+
+						// need to add powerups and diff stuff
+						// check if ball is within the paddle dimensions
 						if (ball_x[curr_ball] + ball_size[curr_ball] - 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1)
 							score = score + (5 - ball_size[curr_ball]);
-						ball_y[curr_ball] = 1'b0;
+
 					end
 
 					curr_ball = curr_ball + 1;
@@ -498,6 +551,7 @@ module game_module(
 				end
 			end
 
+			// p much the same as erase ball
 			DRAW_BALLS: begin
 				if (curr_ball < ball_amount + 1) begin
 					if (curr_ball == 0)
