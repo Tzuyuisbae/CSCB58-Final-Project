@@ -83,11 +83,12 @@ module block_catcher(
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 
 	game_module(
-		.left(SW[1]), // ~KEY[3]),
-		.right(SW[0]), // KEY[2]),
+		.left(~KEY[3] || SW[1]),
+		.right(~KEY[2] || SW[0]),
 		.clk(CLOCK_50),
 		.begin_game(~KEY[1]),
 		.resetn(resetn),
+		.mode(SW[17]), // choose game mode
 		.writeEn(writeEn),
 		.x_out(x),
 		.y_out(y),
@@ -105,12 +106,12 @@ module block_catcher(
 		.HEX7(HEX7),
 
 		// for testing
-		.SW(SW[17:3])
+		.SW(SW[16:2])
 	);
 endmodule
 
 module game_module(
-    input left, right, clk, begin_game, resetn,
+    input left, right, clk, begin_game, resetn, mode,
 
     output reg writeEn,
 
@@ -130,7 +131,7 @@ module game_module(
 
 
 	// for testing
-	input [17:3] SW
+	input [16:3] SW
 );
 
 	reg [7:0] current_state, next_state;
@@ -148,7 +149,13 @@ module game_module(
 
 	// reg for holding the score, time, lives
 	reg [15:0] score;
-	reg [15:0] high_score;
+	// 2d array for high score for both game modes
+	reg [15:0] high_score [1:0];
+	reg [15:0] high_score_2 [1:0];
+	reg [15:0] high_score_3 [1:0];
+	reg [15:0] high_score_4 [1:0];
+	reg [15:0] high_score_5 [1:0];
+	// note this holds lives as well lol
 	reg [7:0] timer;
 
 	// converting time/score in hex to decimal
@@ -189,6 +196,7 @@ module game_module(
 	reg [3:0] rng_goal; // to introduce more rng to spawning
 	// draw bg does different things if prev state is in game or not
 	reg from_game;  // init value of 0
+	reg game_mode; // current game mode 0 or 1
 
 	// init random number generator
 	random r0 (
@@ -303,23 +311,50 @@ module game_module(
 				curr_ball = 0;
 				// update high scores here
 				// will not update if you quit
+				// FOR TESTING need to edit bakc this if statement
 				if (from_game == 1) begin
-					if (score > high_score)
-						high_score = score;
+					if (score > high_score[mode]) begin
+						high_score[mode] = score;
+						high_score_2[mode] = high_score[mode];
+						high_score_3[mode] = high_score_2[mode];
+						high_score_4[mode] = high_score_3[mode];
+						high_score_5[mode] = high_score_4[mode];
+					end
+
+					else if (score > high_score_2[mode]) begin
+						high_score_2[mode] = score;
+						high_score_3[mode] = high_score_2[mode];
+						high_score_4[mode] = high_score_3[mode];
+						high_score_5[mode] = high_score_4[mode];
+					end
+
+					else if (score > high_score_3[mode]) begin
+						high_score_3[mode] = score;
+						high_score_4[mode] = high_score_3[mode];
+						high_score_5[mode] = high_score_4[mode];
+					end
+
+					else if (score > high_score_4[mode]) begin
+						high_score_4[mode] = score;
+						high_score_5[mode] = high_score_4[mode];
+					end
+
+					else if (score > high_score_5[mode]) begin
+						high_score_5[mode] = score;
+					end
 				end
 
-				// show high score
-				score = high_score;
+				// display high score on hex
+				score = high_score[mode];
 
 				// FOR TESTING
-				// ball_amount = 1; // 9 balls on screen
+				// ball_amount = 1;
 
 				ball_amount = 9; // 9 balls on screen
 
 				count_to_60 = 0; // reset count_to_60 to 0
-				timer = 8'd60; // reset timer to 60
+				// timer will be set in game_start
 				time_since_last_ball = 0; // reset ball timer
-				var_ball = 20; // ball variation speed
 				curr_ball_size = 4; // start at biggest size
 				curr_ball_speed = 1; // start at slowest speed
 				power_up_timer = 8'd0; // reset power up timer
@@ -346,7 +381,7 @@ module game_module(
 				if (draw_counter < 17'b10000000000000000) begin
 					// do not draw in 100x100 if from game
 					// bc of flickering
-					if (from_game == 1 && x < 100)
+					if (from_game == 1 && x < 99)
 						writeEn = 1'b0;
 					else
 						writeEn = 1'b1;
@@ -354,10 +389,11 @@ module game_module(
 					x = draw_counter[7:0];
 					y = draw_counter[16:8];
 
-					// draw bg for side 'menu' blue
-					// need scores
+					// draw bg for side 'menu' blue if timer game mode
+					// red if survival
+					// need scores and text
 					if (x >= 100)
-						colour = 3'b001;
+						colour = game_mode ? 3'b100 : 3'b001;
 					else
 						colour = 3'b000;
 
@@ -394,7 +430,12 @@ module game_module(
 			end
 
 			// wait for player to start
-			GAME_STOP: next_state = begin_game ? GAME_START : GAME_STOP;
+			GAME_STOP: begin
+				// set game mode here, cannot change during
+				game_mode = mode;
+				var_ball = 20 * (game_mode + 1); // ball variation speed double if gamemode 2
+				next_state = begin_game ? GAME_START : GAME_STOP;
+			end
 
 			GAME_START: begin
 				// reset the game when reset n is pressed
@@ -403,18 +444,21 @@ module game_module(
 					next_state = GAME_INIT;
 				end
 
-				// set score
+				// set begin score and timer
 				else if (from_game == 0) begin
+					if (game_mode == 0)
+						timer = 8'd60; // reset timer to 60
+					else
+						timer = 8'd5; // if survival set lives to 5
 					from_game = 1;
 					score = 9'd0;
 				end
 
 				// idk why using the 1 sec clock does not work
 				// need to use count_to_60 lol
-				else if (timer == 8'd0) begin
-					timer = 8'd60;
+				// end game here when timer is 0
+				else if (timer == 8'd0)
 					next_state = GAME_INIT;
-				end
 
 				// every 1/60th of second
 				else if (CLOCK_1_60_S) begin
@@ -438,23 +482,27 @@ module game_module(
 
 					// this is every one second
 					if (count_to_60 == 60) begin
-						timer = timer - 1;
+						// decrement timer if in game mode 0
+						if (game_mode == 0)
+							timer = timer - 1;
 						count_to_60 = 0;
 
 						if (power_up_timer > 0)
 							power_up_timer = power_up_timer - 1;
 						else begin
+							// reset paddle stats when power up ends
 							paddle_power = -1;
 							paddle_size = 12;
 						end
 
 						// increase diff every 15 seconds for timed game
-						if (timer == 8'd45)
-							curr_ball_size = 2;
-						else if (timer == 8'd30)
-							curr_ball_speed = 2;
-						else if (timer == 8'd15)
+						// every 100 score in surival increase diff
+						if ((timer <= 8'd15 && game_mode == 0) || (game_mode == 1 && score >= 300))
 							curr_ball_size = 1;
+						else if ((timer <= 8'd30 && game_mode == 0) || (game_mode == 1 && score >= 150))
+							curr_ball_speed = 2;
+						else if ((timer <= 8'd45 && game_mode == 0) || (game_mode == 1 && score >= 50))
+							curr_ball_size = 2;
 					end
 				end
 			end
@@ -538,10 +586,10 @@ module game_module(
 						ball_size[curr_ball] = curr_ball_size;
 
 						// just introducing more "rng" lol
-						if (var_ball < 30)
+						if (var_ball < 30 * (game_mode + 1))
 							var_ball = var_ball + 1;
 						else
-							var_ball = 20;
+							var_ball = 20 * (game_mode + 1);
 
 						// set ball colour w/ rng, make sure it isn't black tho
 						if (rng[2:0] == 3'b000)
@@ -550,7 +598,7 @@ module game_module(
 							ball_colour[curr_ball] = rng[2:0];
 
 						// FOR TESTING
-						// ball_colour[curr_ball] = SW[17:15];
+						// ball_colour[curr_ball] = SW[16:14];
 
 						// set ball location across the play area w/ randomness
 						ball_x[curr_ball] = (10 * (curr_ball - 1)) + rng[3:0];
@@ -620,9 +668,9 @@ module game_module(
 
 					// check if ball is at paddle depth (110 px)
 					if ((ball_y[curr_ball] + ball_size[curr_ball] - 1) >= 110 && ball_active[curr_ball]) begin
+						// make ball inactive
 						ball_active[curr_ball] = 1'b0;
 
-						// need to add powerups and diff stuff
 						// check if ball is within the paddle dimensions
 						if (ball_x[curr_ball] + ball_size[curr_ball] - 1 >= paddle_x && ball_x[curr_ball] <= paddle_x + paddle_size - 1) begin
 							// ball size = 4 -> 1, 2 -> 3, 1 -> 4 multiplication
@@ -636,42 +684,56 @@ module game_module(
 
 							// power down gets priority
 							// red no effect if green in effect
+							// paddle power = 1 = power up 0 = power down
 							if (ball_colour[curr_ball] == 3'b100 && paddle_power != 1) begin
-								// need one for survival
-								// need these checks so it don't break
-								if (timer > 3'b101) begin
-									timer = timer - 3'b101;
-									// decrease score
-									base_score = base_score * -1;
+								// if survival remove 1 life
+								if (game_mode == 1) begin
+									timer = timer - 1'b1;
 								end
+
+								// otherwise remove 5 secs from timer
+								else if (timer > 3'b101) begin
+									timer = timer - 3'b101;
+								end
+
+								// to ensure that timer is not messed up lool
 								else 
 									timer = 3'b000; 
+
+								// less score given bit shift right div by 2
+								base_score = base_score >> 1;
 							end
-							// yellow no effect if green in effect
+
+							// yellow no effect if green in effect allow 'stack'
 							else if (ball_colour[curr_ball] == 3'b110 && paddle_power != 1) begin
 								paddle_size = 6;
 								power_up_timer = 5;
 								paddle_power = 0;
 							end
+
 							// blue no effect if yellow in effect
 							else if (ball_colour[curr_ball] == 3'b001 && paddle_power != 0)
 								base_score = base_score * 2;
-							// green nothing happens if paddle is decreased
+
+							// green nothing happens if paddle is decreased do not stack as well
 							else if (ball_colour[curr_ball] == 3'b010 && paddle_power == -1) begin
 								paddle_size = 24;
 
 								// ensure ball does not overlap with menu
 								if (paddle_x + paddle_size + 1 >= 100)
 									paddle_x = 99 - paddle_size;
+
 								power_up_timer = 5;
 								paddle_power = 1;
 							end
 
-							// check if score is negative
-							if (score + base_score <= 0)
-								score = 3'd0;
-							else
-								score = score + base_score;
+							score = score + base_score;
+						end
+
+						// if not within bounds and game mode is 1 and not red or yellow remove life
+						else if (game_mode == 1) begin
+							if (ball_colour[curr_ball] == 3'b001 || ball_colour[curr_ball] == 3'b010 || ball_colour[curr_ball] == 3'b011 || ball_colour[curr_ball] == 3'b101 || ball_colour[curr_ball] == 3'b111)
+								timer = timer - 1'b1;
 						end
 
 					end
