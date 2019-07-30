@@ -164,10 +164,10 @@ module game_module(
 	wire [15:0] score_convert_to_bcd;
 
 	// paddle position
-	integer paddle_x;
-	integer paddle_y;
-	integer paddle_size; 
-	integer direction; // 0 = left, 1 = right
+	reg [6:0] paddle_x;
+	reg [6:0] paddle_y;
+	reg [4:0] paddle_size; 
+	reg [1:0] direction; // 0 = left, 1 = right
 	reg [2:0] paddle_colour; 
 
 	// clock for 1/60 sec and 1 sec
@@ -184,12 +184,12 @@ module game_module(
 	reg [2:0] ball_size [10:0];
 	reg [2:0] ball_speed [10:0];
 	reg [10:0] ball_active;
-	integer curr_ball;
-	integer ball_amount;
+	reg [3:0] curr_ball;
+	reg [3:0] ball_amount;
 	integer time_since_last_ball;
-	integer var_ball; // variation in ball spawn
-	integer curr_ball_size;
-	integer curr_ball_speed;
+	reg [7:0] var_ball; // variation in ball spawn
+	reg [2:0] curr_ball_size;
+	reg [1:0] curr_ball_speed;
 	integer base_score; // base score of a ball collected
 	reg [7:0] power_up_timer; // controls time of paddle size change
 	integer paddle_power; // holds whether if paddle has increase or decrease or neither
@@ -270,6 +270,74 @@ module game_module(
 		.OUT(HEX7)
 	);	
 
+	// this is for the static text on screen
+	reg [1:0] static_text;
+	reg [4:0] start_screen_text;
+	integer i, j;
+
+	Pixel_On_Text2 #(.displayText("SCORE")) score_text (
+	    clk,
+	    101,
+	    0,
+	    i,
+	    j,
+	    static_text[0]
+	);
+
+	Pixel_On_Text2 #(.displayText("BEST")) best_text (
+	    clk,
+	    101,
+	    22,
+	    i,
+	    j,
+	    static_text[1]
+	);
+
+	Pixel_On_Text2 #(.displayText("SW[17]:MODE")) timed_text (
+	    clk,
+	    0,
+	    0,
+	    i,
+	    j,
+	    start_screen_text[0]
+	);
+
+	Pixel_On_Text2 #(.displayText("KEY[0]:RESET")) reset_text (
+	    clk,
+	    0,
+	    16,
+	    i,
+	    j,
+	    start_screen_text[1]
+	);
+
+	Pixel_On_Text2 #(.displayText("KEY[1]:START")) start_text (
+	    clk,
+	    0,
+	    32,
+	    i,
+	    j,
+	    start_screen_text[2]
+	);
+
+	Pixel_On_Text2 #(.displayText("KEY[2]:RIGHT")) right_text (
+	    clk,
+	    0,
+	    48,
+	    i,
+	    j,
+	    start_screen_text[3]
+	);
+
+	Pixel_On_Text2 #(.displayText("KEY[3]:LEFT")) left_text (
+	    clk,
+	    0,
+	    64,
+	    i,
+	    j,
+	    start_screen_text[4]
+	);
+
 	// current_state registers
 	always@(posedge clk)
     	begin: state_FFs
@@ -282,20 +350,22 @@ module game_module(
 			GAME_INIT		= 5'd0, // init the game vars
 			RESET_BALLS		= 5'd1, // reset ball stats
 			DRAW_BG 		= 5'd2, // draw background
-			INIT_PADDLE		= 5'd3, // draw paddle at start position
-			GAME_STOP		= 5'd4, // wait for player to start
-		  	GAME_START		= 5'd5, // when game is in play
+			DRAW_TEXT		= 5'd3, // draw text
+			INIT_PADDLE		= 5'd4, // draw paddle at start position
+			GAME_STOP		= 5'd5, // wait for player to start
+			ERASE_BG		= 5'd6, // erases the text on screen before play
+		  	GAME_START		= 5'd7, // when game is in play
 
-			ERASE_PADDLE 	= 5'd6, // erase and move paddle pos
-			ERASE_PADDLE_2 	= 5'd7,
-			DRAW_PADDLE		= 5'd8, // draw paddle at new position
+			ERASE_PADDLE 	= 5'd8, // erase and move paddle pos
+			ERASE_PADDLE_2 	= 5'd9,
+			DRAW_PADDLE		= 5'd10, // draw paddle at new position
 
-			SPAWN_BALLS		= 5'd9, // decide whether to spawn a ball
-			ERASE_BALLS		= 5'd10, // erase and move balls
-			DRAW_BALLS		= 5'd11, // draw balls at new position
+			SPAWN_BALLS		= 5'd11, // decide whether to spawn a ball
+			ERASE_BALLS		= 5'd12, // erase and move balls
+			DRAW_BALLS		= 5'd13, // draw balls at new position
 
 			// check if balls are in contact w/ bottom or paddle
-			COLLISION_CHECK = 5'd12; 
+			COLLISION_CHECK = 5'd14; 
 
 	// STATE TABLE
 	always @(posedge clk)
@@ -379,12 +449,7 @@ module game_module(
 			DRAW_BG: begin
 				// colour all pixels black
 				if (draw_counter < 17'b10000000000000000) begin
-					// do not draw in 100x100 if from game
-					// bc of flickering
-					if (from_game == 1 && x < 99)
-						writeEn = 1'b0;
-					else
-						writeEn = 1'b1;
+					writeEn = 1'b1;
 
 					x = draw_counter[7:0];
 					y = draw_counter[16:8];
@@ -392,7 +457,7 @@ module game_module(
 					// draw bg for side 'menu' blue if timer game mode
 					// red if survival
 					// need scores and text
-					if (x >= 100)
+					if (x == 100)
 						colour = game_mode ? 3'b100 : 3'b001;
 					else
 						colour = 3'b000;
@@ -401,10 +466,52 @@ module game_module(
 				end
 				else begin
 					writeEn = 1'b0;
+					i = 0;
+					j = 0;
 					draw_counter = 17'b00000000;
 					// erase paddle or init paddle depending from where called
-					next_state = from_game ? ERASE_PADDLE : INIT_PADDLE;
+					next_state = DRAW_TEXT;
 				end
+			end
+
+			DRAW_TEXT: begin
+    	        if (j <= 160) begin
+	                if (i < 160) begin
+	                    writeEn = 1'b1;
+	
+	                    x = i;
+	                    y = j;
+	
+						// these determine whether or not the pixel selected is part of a word
+	                    if ((|static_text) || ((|start_screen_text) && from_game == 0))
+	                        colour = 3'b111;
+	                    else
+	                        writeEn = 1'b0;
+	
+	                    i = i + 1;
+	                end
+	
+					// same as above but special case at end of screen
+	                else begin
+	                    writeEn = 1'b1;
+	
+	                    x = i;
+	                    y = j;
+	
+	                    if ((|static_text) || ((|start_screen_text) && from_game == 0))
+	                        colour = 3'b111;
+	                    else
+	                        writeEn = 1'b0;
+	
+	                    i = 0;
+	                    j = j + 1;
+	                end
+	            end
+	
+	            else begin
+	                writeEn = 1'b0;
+					next_state = INIT_PADDLE;
+	            end
 			end
 
 			// draw initial paddle location
@@ -433,8 +540,49 @@ module game_module(
 			GAME_STOP: begin
 				// set game mode here, cannot change during
 				game_mode = mode;
-				var_ball = 20 * (game_mode + 1); // ball variation speed double if gamemode 2
-				next_state = begin_game ? GAME_START : GAME_STOP;
+				i = 0;
+				j = 0;
+				var_ball = 30 * (game_mode + 1); // ball variation speed double if gamemode 2
+				next_state = begin_game ? ERASE_BG : GAME_STOP;
+			end
+
+			// just erasing the play area
+			ERASE_BG: begin
+    	        if (j <= 160) begin
+	                if (i < 100) begin
+	                    writeEn = 1'b1;
+	
+	                    x = i;
+	                    y = j;
+	
+						if (x == 100)
+							colour = game_mode ? 3'b100 : 3'b001;
+						colour = 3'b000;
+	
+	                    i = i + 1;
+	                end
+	
+					// same as above but special case at end of screen
+	                else begin
+	                    writeEn = 1'b1;
+	
+	                    x = i;
+	                    y = j;
+	
+						if (x == 100)
+							colour = game_mode ? 3'b100 : 3'b001;
+						else 
+							colour = 3'b000;
+	
+	                    i = 0;
+	                    j = j + 1;
+	                end
+	            end
+	
+	            else begin
+	                writeEn = 1'b0;
+					next_state = GAME_START;
+	            end
 			end
 
 			GAME_START: begin
@@ -463,7 +611,7 @@ module game_module(
 				// every 1/60th of second
 				else if (CLOCK_1_60_S) begin
 					// update screen
-					next_state = DRAW_BG;
+					next_state = ERASE_PADDLE;
 
 					// move left
 					if (left && paddle_x > 0)
@@ -475,7 +623,7 @@ module game_module(
 
 					// do nothing
 					else
-						direction = -1;
+						direction = 2;
 
 					count_to_60 = count_to_60 + 1;
 					time_since_last_ball = time_since_last_ball + 1;
@@ -586,10 +734,10 @@ module game_module(
 						ball_size[curr_ball] = curr_ball_size;
 
 						// just introducing more "rng" lol
-						if (var_ball < 30 * (game_mode + 1))
+						if (var_ball < 40 * (game_mode + 1))
 							var_ball = var_ball + 1;
 						else
-							var_ball = 20 * (game_mode + 1);
+							var_ball = 30 * (game_mode + 1);
 
 						// set ball colour w/ rng, make sure it isn't black tho
 						if (rng[2:0] == 3'b000)
