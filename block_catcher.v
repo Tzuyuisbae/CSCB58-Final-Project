@@ -275,19 +275,19 @@ module game_module(
 	reg [4:0] start_screen_text;
 	integer i, j;
 
-	Pixel_On_Text2 #(.displayText("SCORE")) score_text (
-	    clk,
-	    101,
-	    0,
-	    i,
-	    j,
-	    static_text[0]
-	);
+	// Pixel_On_Text2 #(.displayText("SCORE")) score_text (
+	//     clk,
+	//     101,
+	//     0,
+	//     i,
+	//     j,
+	//     static_text[0]
+	// );
 
 	Pixel_On_Text2 #(.displayText("BEST")) best_text (
 	    clk,
 	    101,
-	    22,
+	    0,
 	    i,
 	    j,
 	    static_text[1]
@@ -337,6 +337,42 @@ module game_module(
 	    j,
 	    start_screen_text[4]
 	);
+	
+	// for the on screen score display
+	wire [89:0] screen_display [5:0];
+	integer curr_score;
+	integer index;
+	integer digit;
+
+	score_to_display sd(
+		.score_display(screen_display[0]),
+		.score_input(score[7:0])
+	);
+
+	score_to_display hsd_0 (
+		.score_display(screen_display[1]),
+		.score_input(high_score[mode][7:0])
+	);
+
+	score_to_display hsd_1 (
+		.score_display(screen_display[2]),
+		.score_input(high_score_2[mode][7:0])
+	);
+
+	score_to_display hsd_2 (
+		.score_display(screen_display[3]),
+		.score_input(high_score_3[mode][7:0])
+	);
+
+	score_to_display hsd_3 (
+		.score_display(screen_display[4]),
+		.score_input(high_score_4[mode][7:0])
+	);
+
+	score_to_display hsd_4 (
+		.score_display(screen_display[5]),
+		.score_input(high_score_5[mode][7:0])
+	);
 
 	// current_state registers
 	always@(posedge clk)
@@ -365,7 +401,8 @@ module game_module(
 			DRAW_BALLS		= 5'd13, // draw balls at new position
 
 			// check if balls are in contact w/ bottom or paddle
-			COLLISION_CHECK = 5'd14; 
+			COLLISION_CHECK = 5'd14,
+			UPDATE_SCORE	= 5'd15; // update the text score on screen
 
 	// STATE TABLE
 	always @(posedge clk)
@@ -384,29 +421,29 @@ module game_module(
 				// FOR TESTING need to edit bakc this if statement
 				if (from_game == 1) begin
 					if (score > high_score[mode]) begin
-						high_score[mode] = score;
-						high_score_2[mode] = high_score[mode];
-						high_score_3[mode] = high_score_2[mode];
-						high_score_4[mode] = high_score_3[mode];
 						high_score_5[mode] = high_score_4[mode];
+						high_score_4[mode] = high_score_3[mode];
+						high_score_3[mode] = high_score_2[mode];
+						high_score_2[mode] = high_score[mode];
+						high_score[mode] = score;
 					end
 
 					else if (score > high_score_2[mode]) begin
-						high_score_2[mode] = score;
-						high_score_3[mode] = high_score_2[mode];
-						high_score_4[mode] = high_score_3[mode];
 						high_score_5[mode] = high_score_4[mode];
+						high_score_4[mode] = high_score_3[mode];
+						high_score_3[mode] = high_score_2[mode];
+						high_score_2[mode] = score;
 					end
 
 					else if (score > high_score_3[mode]) begin
-						high_score_3[mode] = score;
-						high_score_4[mode] = high_score_3[mode];
 						high_score_5[mode] = high_score_4[mode];
+						high_score_4[mode] = high_score_3[mode];
+						high_score_3[mode] = score;
 					end
 
 					else if (score > high_score_4[mode]) begin
-						high_score_4[mode] = score;
 						high_score_5[mode] = high_score_4[mode];
+						high_score_4[mode] = score;
 					end
 
 					else if (score > high_score_5[mode]) begin
@@ -415,7 +452,7 @@ module game_module(
 				end
 
 				// display high score on hex
-				score = high_score[mode];
+				// score = high_score[mode];
 
 				// FOR TESTING
 				// ball_amount = 1;
@@ -510,8 +547,60 @@ module game_module(
 	
 	            else begin
 	                writeEn = 1'b0;
-					next_state = INIT_PADDLE;
+					curr_score = 0;
+					// next_state = INIT_PADDLE;
+					next_state = UPDATE_SCORE;
 	            end
+			end
+
+			// update score on screen
+			UPDATE_SCORE: begin
+				if (curr_score == 0) begin
+					curr_score = 1;
+					i = 0;
+					j = 0;
+					index = 0;
+					digit = 0;
+				end
+
+				else if (curr_score <= 5) begin
+					if (j < 5) begin
+						if (screen_display[curr_score][index] == 1)
+							colour = 3'b111;
+						else
+							colour = 3'b000;
+
+						writeEn = 1'b1;
+						x = i + 102 + (digit * 6);
+						y = j + 16 + (7 * (curr_score - 1));
+
+						if (i < 5)
+							i = i + 1;
+						else begin
+							j = j + 1;
+							i = 0;
+						end	
+
+						index = index + 1;
+					end
+
+					else if (digit < 2) begin
+						digit = digit + 1;
+						i = 0;
+						j = 0;
+					end
+
+					else begin
+						digit = 0;
+						index = 0;
+						i = 0;
+						j = 0;
+						curr_score = curr_score + 1;
+					end
+				end
+
+				else
+					next_state = INIT_PADDLE;
 			end
 
 			// draw initial paddle location
@@ -544,6 +633,9 @@ module game_module(
 				j = 0;
 				var_ball = 30 * (game_mode + 1); // ball variation speed double if gamemode 2
 				next_state = begin_game ? ERASE_BG : GAME_STOP;
+
+				if (!resetn)
+					next_state = GAME_INIT;
 			end
 
 			// just erasing the play area
